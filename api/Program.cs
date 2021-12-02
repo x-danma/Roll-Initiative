@@ -1,42 +1,92 @@
-using Api.Seed;
-using Api.Models;
 using Microsoft.EntityFrameworkCore;
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+var RollInitiativeApiAllowSpecificOrigins = "_rollInitiativeApiAllowSpecificOrigins";
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+builder.Services.AddDbContext<InitiativeContext>(opt => opt.UseCosmos(
+    builder.Configuration.GetConnectionString("CosmosDB"),
+    "Games"));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(name: RollInitiativeApiAllowSpecificOrigins,
+                      corsBuilder =>
+                      {
+                          corsBuilder.WithOrigins(builder.Configuration.GetValue<string>("AllowedCors"))
+                          .AllowAnyHeader()
+                          .AllowAnyMethod();
 
+                      });
+});
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+app.Services.CreateScope().ServiceProvider
+            .GetService<InitiativeContext>().Database
+            .EnsureCreated();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+app.UseCors(RollInitiativeApiAllowSpecificOrigins);
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+app.MapGet("/", () => "Hello World!");
 
-app.MapGet("/weatherforecast", () =>
+app.MapGet("/games", async (InitiativeContext db) =>
+    await db.Games.ToListAsync());
+
+app.MapGet("/games/complete", async (InitiativeContext db) =>
+    await db.Games.Where(t => t.IsComplete).ToListAsync());
+
+app.MapGet("/games/{id}", async (int id, InitiativeContext db) =>
+    await db.Games.FindAsync(id)
+        is Game game
+            ? Results.Ok(game)
+            : Results.NotFound());
+
+app.MapPost("/games", async (Game game, InitiativeContext db) =>
 {
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-       new WeatherForecast
-       (
-           DateTime.Now.AddDays(index),
-           Random.Shared.Next(-20, 55),
-           summaries[Random.Shared.Next(summaries.Length)]
-       ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+    while (true)
+    {
+        game.Id = new Random().Next(99999999);
+        game.IsComplete = false;
+        if(await db.Games.FindAsync(game.Id) is not Game existingGame)
+            break;
+    }
+    db.Games.Add(game);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/games/{game.Id}", game);
+});
+
+app.MapPut("/games/{id}", async (int id, Game inputTodo, InitiativeContext db) =>
+{
+    var game = await db.Games.FindAsync(id);
+
+    if (game is null) return Results.NotFound();
+
+    game.Characters = inputTodo.Characters;
+    game.IsComplete = inputTodo.IsComplete;
+
+    await db.SaveChangesAsync();
+
+    return Results.NoContent();
+});
+
+app.MapDelete("/games/{id}", async (int id, InitiativeContext db) =>
+{
+    if (await db.Games.FindAsync(id) is Game game)
+    {
+        db.Games.Remove(game);
+        await db.SaveChangesAsync();
+        return Results.Ok(game);
+    }
+
+    return Results.NotFound();
+});
 
 app.Run();
 
@@ -47,26 +97,34 @@ record WeatherForecast(DateTime Date, int TemperatureC, string? Summary)
 
 class InitiativeContext : DbContext
 {
-    public InitiativeContext()
-    {
-
-    }
-
     public InitiativeContext(DbContextOptions<InitiativeContext> options) : base(options)
     {
     }
 
-    public DbSet<Game> Games { get; set; }
+    public DbSet<Game> Games => Set<Game>();
+}
 
-    public static async Task CheckAndSeedDatabaseAsync( DbContextOptions<InitiativeContext> options){
-        using var context = new InitiativeContext(options);
-        var _ = await context.Database.EnsureDeletedAsync();
+class Game
+{
+    public int Id { get; set; }
+    public bool IsComplete { get; set; }
+    public List<Character> Characters { get; set; } = new();
 
-        if ( await context.Database.EnsureCreatedAsync())
-        {
-            context.Games.AddRange(Seed.Data);
-            await context.SaveChangesAsync();
-        }
+    public Game(int Id)
+    {
+        this.Id = Id;
     }
-    
+
+}
+
+class Character
+{
+    public string Name { get; set; }
+
+    public Character(string name)
+    {
+        Name = name;
+    }
+
+    public int RollValue { get; set; }
 }

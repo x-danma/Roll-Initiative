@@ -1,0 +1,29 @@
+<h1>Welcome to your game!</h1>
+<div *ngIf="!showCharacterList" class="spinner-border text-primary" role="status">
+    <span class="visually-hidden">Loading...</span>
+</div>
+<div class="card" *ngIf="showCharacterList">
+    <div class="card-header">Initiatives:</div>
+    <ul class="list-group list-group-flush">
+        <li *ngFor=" let character of game.characters" class="list-group-item"></li>
+    </ul>
+</div>
+<br>
+
+<div class="d-grid gap-2">
+    <button type="button button-block" class="btn btn-success">Add player</button>
+</div>
+<br>
+<br>
+<div>
+    <button type="button" class="btn btn-secondary float-end">Next Move</button>
+</div>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<div>
+    <button type="button" class="btn btn-warning float-end">Finish Game</button>
+</div>
